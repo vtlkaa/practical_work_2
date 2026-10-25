@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <package_name>bash</package_name>
+    <repository>tests/data/repository.txt</repository>
+    <test_mode>true</test_mode>
+</configuration>
