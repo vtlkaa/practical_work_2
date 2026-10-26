@@ -21,24 +21,9 @@ def find_package_record(package_name, repository_data):
 
 def dependencies(package_record):
     """Извлечь зависимости из записи пакета."""
-    lines = package_record.splitlines()
-    result = []
-    reading_dependencies = False
-
-    for line in lines:
+    for line in package_record.splitlines():
         if line.startswith("Depends:"):
-            result.append(line.removeprefix("Depends:").strip())
-            reading_dependencies = True
-
-        elif reading_dependencies and line.startswith(" "):
-            result.append(line.strip())
-
-        elif reading_dependencies:
-            break
-
-    if result:
-        return " ".join(result)
-
+            return line.removeprefix("Depends:").strip()
     return None
 
 config_path = Path("config/config.xml")
