@@ -8,95 +8,7 @@ import sys
 if len(sys.argv) > 1:
     config_path = Path(sys.argv[1])
 else:
-    config_path = Path("config/config.xml")
-
-def download_repository(url_repository):
-    """Загрузить данные репозитория по URL."""
-    with urlopen(url_repository) as response:
-        compressed_data = response.read()
-        
-    return gzip.decompress(compressed_data).decode("utf-8")
-
-def find_package_record(package_name, repository_data):
-    """Найти запись пакета в метаданных репозитория."""
-    packages = repository_data.split("\n\n")
-    for pkg in packages:
-        if f"Package: {package_name}\n" in pkg:
-            return pkg
-    return None
-
-def dependencies(package_record):
-    """Извлечь Pre-Depends и Depends из записи пакета."""
-    lines = package_record.splitlines()
-    result = {"Pre-Depends": [],"Depends": []}
-
-    current_field = None
-
-    for line in lines:
-        if line.startswith("Pre-Depends:"):
-            current_field = "Pre-Depends"
-            result[current_field].append(line.removeprefix("Pre-Depends:").strip())
-
-        elif line.startswith("Depends:"):
-            current_field = "Depends"
-            result[current_field].append(line.removeprefix("Depends:").strip())
-
-        elif line.startswith(" ") and current_field:
-            result[current_field].append(line.strip())
-
-        else:
-            current_field = None
-
-    for field in result:
-        result[field] = " ".join(result[field]) or None
-
-    return result
-
-def get_dependencies_names(package_record):
-    """Получить имена зависимостей пакета."""
-    package_dependencies = dependencies(package_record)
-
-    result = []
-    for field in ["Pre-Depends", "Depends"]:
-        value = package_dependencies[field]
-
-        if not value:
-            continue
-
-        for dependency in value.split(","):
-            dependency = dependency.strip()
-            package_name = dependency.split(" ")[0]
-            result.append(package_name)
-
-    return result
-
-def build_dependency_graph(package_name, get_dependencies):
-    """Построить граф зависимостей пакетов с помощью DFS."""
-    graph = {}
-    visited = set()
-    visiting = set()
-
-    def dfs(current_package):
-        if current_package in visiting:
-            print(f"Обнаружен цикл зависимостей: {current_package}")
-            return
-
-        if current_package in visited:
-            return
-
-        visiting.add(current_package)
-
-        dependency_names = get_dependencies(current_package)
-        graph[current_package] = dependency_names
-
-        for dependency_name in dependency_names:
-            dfs(dependency_name)
-
-        visiting.remove(current_package)
-        visited.add(current_package)
-
-    dfs(package_name)
-    return graph
+    config_path = Path("config/config_test.xml")
 
 def parse_dependency_line(line):
     """Разобрать строку с именем пакета и его зависимостями."""
@@ -144,46 +56,29 @@ def parse_test_repository(file_path):
 
     return graph
 
+def find_reverse_dependencies(package_name, graph):
+    """Найти обратные зависимости с помощью DFS."""
+    reverse_graph = {package: [] for package in graph}
 
-def get_real_dependencies(package_name, repository_data):
-    """Получить прямые зависимости пакета из репозитория Ubuntu."""
-    package_record = find_package_record(package_name, repository_data)
+    for package, dependencies in graph.items():
+        for dependency in dependencies:
+            reverse_graph[dependency].append(package)
 
-    if package_record is None:
-        print(
-            f"Предупреждение: пакет {package_name} не найден. "
-            "Его зависимости не раскрыты."
-        )
-        return []
+    result = []
+    visited = {package_name}
 
-    return get_dependencies_names(package_record)
+    def dfs(current_package):
+        for dependent in reverse_graph[current_package]:
+            if dependent not in visited:
+                visited.add(dependent)
+                result.append(dependent)
+                dfs(dependent)
 
-def get_test_dependencies(package_name, test_graph):
-    """Получить зависимости пакета из тестового репозитория."""
-    if package_name not in test_graph:
-        raise ValueError(f"Пакет {package_name} не найден в тестовом репозитории.")
-    return test_graph[package_name]
-
-def print_direct_dependencies(package_name, repository_data):
-    """Вывести прямые зависимости пакета."""
-    package_record = find_package_record(package_name, repository_data)
-
-    if package_record is None:
-        raise ValueError(f"Пакет {package_name} не найден в репозитории.")
-
-    package_dependencies = dependencies(package_record)
-    dependency_names = get_dependencies_names(package_record)
-
-    print(f"\nПрямые зависимости пакета {package_name}:")
-
-    print(f"Pre-Depends: {package_dependencies['Pre-Depends'] or 'нет'}")
-    print(f"Depends: {package_dependencies['Depends'] or 'нет'}")
-    print(f"Имена пакетов: {dependency_names}")
-
+    dfs(package_name)
+    return result
 
 def main():
-    """Загрузить настройки и запустить построение графа зависимостей."""
-
+    """Загрузить настройки и найти обратные зависимости пакета."""
     try:
         root = ET.parse(config_path).getroot()
     except FileNotFoundError:
@@ -208,32 +103,23 @@ def main():
     repository = repository.strip()
 
     try:
-        if config_path.name == "config_test.xml":
-            test_graph = parse_test_repository(repository)
+        test_graph = parse_test_repository(repository)
 
-            dependency_graph = build_dependency_graph(
-                package_name,
-                lambda name: get_test_dependencies(name, test_graph)
-            )
+        if package_name not in test_graph:
+            raise ValueError(f"Пакет {package_name} не найден в тестовом репозитории.")
+
+        reverse_dependencies = find_reverse_dependencies(package_name, test_graph)
+
+        print(f"\nОбратные зависимости пакета {package_name}:")
+
+        if reverse_dependencies:
+            for package in reverse_dependencies:
+                print(package)
         else:
-            repository_data = download_repository(repository)
-
-            print_direct_dependencies(package_name, repository_data)
-
-            dependency_graph = build_dependency_graph(
-                package_name,
-                lambda name: get_real_dependencies(name, repository_data)
-            )
-
-        print(f"\nГраф зависимостей пакета {package_name}:")
-        for package, dependency_names in dependency_graph.items():
-            print(f"{package} -> {dependency_names}")
+            print("Обратных зависимостей нет.")
 
     except (OSError, ValueError) as error:
         print(f"Ошибка: {error}")
-    except Exception as error:
-        print(f"Ошибка при обработке репозитория: {error}")
-
 
 if __name__ == "__main__":
     main()
